@@ -1,0 +1,11 @@
+/dist/
+/build/
+.DS_Store
+*.log
+
+.env
+.env.*
+*.nvs.bin
+*.pkg
+*.pem
+*.key
