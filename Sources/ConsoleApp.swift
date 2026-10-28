@@ -130,10 +130,10 @@ struct ConsoleView: View {
     private var subtitle: String {
         switch page ?? .overview {
         case .overview: "先看是否在工作，再看图片走到了哪里。"
-        case .connectivity: "发现设备、读取连接信息，管理保存的设备绑定。"
+        case .connectivity: "发现相框，通过功能键确认配对并记住连接。"
         case .images: "选择本地六色 PNG，确认后通过实际可用的数据通道发送。"
         case .applicationIO: "读取和写入当前应用公开的 BLE 特征。"
-        case .wifi: "通过设备 HTTP 管理接口维护 Wi-Fi 配置。"
+        case .wifi: "维护本地 Wi-Fi 配置；设备 HTTP 操作仅用于旧固件。"
         case .maintenance: "备份、更新和恢复已绑定设备的 Flash。"
         case .device: "这里显示鉴权读取的设备状态，不根据屏幕残留画面猜测。"
         case .diagnostics: "按时间看发生了什么；技术细节用于解释现象。"

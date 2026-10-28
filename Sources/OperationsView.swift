@@ -181,6 +181,7 @@ struct ConnectivityView: View {
         VStack(alignment: .leading, spacing: 22) {
             HStack {
                 Button("扫描附近设备") { model.command("scan") }.disabled(model.busy || !model.available("scan"))
+                Button("读取配对状态") { model.command("pair-status", fields: deviceID.isEmpty ? [:] : ["device_id": deviceID]) }.disabled(model.busy || !model.available("pair-status"))
                 Button("读取鉴权设备信息") { model.command("info") }.disabled(model.busy || !model.available("info"))
                 Button("读取完整状态") { model.command("status") }.disabled(model.busy || !model.connected)
             }
@@ -196,18 +197,27 @@ struct ConnectivityView: View {
                         }.padding(.vertical, 13); Divider()
                     }
                 }
-                Text("扫描结果尚未鉴权；绑定前后台会用已有设备凭据验证身份。").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("选择相框后发起配对，再核对相框屏幕上的数字。").font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            GroupBox("设备绑定") {
+            GroupBox("设备配对") {
                 VStack(alignment: .leading, spacing: 12) {
                     TextField("设备 ID，例如 001122334455", text: $deviceID).textFieldStyle(.roundedBorder)
                     HStack {
-                        Button("验证并保存绑定…") { confirmation = .init(action: "bind", title: "保存设备绑定？", message: "使用后台已有凭据验证此设备，并保存独立绑定记录。不会修改私有环境配置。", fields: ["device_id": deviceID]) }.disabled(model.busy || deviceID.isEmpty || !model.available("bind"))
-                        Button("解除保存的绑定…", role: .destructive) { confirmation = .init(action: "unbind", title: "解除设备绑定？", message: "删除本机保存的绑定记录。配置中显式指定的设备 ID 不会被删除，后台重启后的目标由配置决定。", fields: [:], destructive: true) }.disabled(model.busy || !model.available("unbind"))
+                        Button("发起配对") { model.command("pair", fields: ["device_id": deviceID, "text": "PhotoPainter Console"]) }.disabled(model.busy || deviceID.isEmpty || !model.available("pair"))
+                        Button("移除本机配对…", role: .destructive) { confirmation = .init(action: "forget", title: "移除本机配对？", message: "仅删除这台电脑保存的关系，不会解除相框上的 owner。再次配对前，请在相框上长按功能键 8 秒并松开。未确认图片记录不会因此变成已取消。", fields: deviceID.isEmpty ? [:] : ["device_id": deviceID], destructive: true) }.disabled(model.busy || !model.available("forget"))
                     }
                 }.padding(10)
             }
-            ActionResultView(model: model, actions: ["info", "scan", "bind", "unbind"], title: "连接信息与结果")
+            if let progress = model.results["pair"], let code = progress["code"]?.text,
+               code.count == 6, code.allSatisfy({ $0.isNumber }), model.snapshot?.operation == "pair" {
+                GroupBox("核对配对码") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(code).font(.system(size: 36, weight: .semibold, design: .monospaced)).foregroundStyle(accent).textSelection(.enabled)
+                        Text(progress["state"]?.text == "4" ? "数字一致时，按一下相框的功能键。" : "相框正在显示配对码，请等待屏幕刷新完成。")
+                    }.padding(10)
+                }
+            }
+            ActionResultView(model: model, actions: ["info", "scan", "pair-status", "pair", "forget", "bind", "unbind"], title: "连接信息与结果")
             Divider()
             HStack {
                 Button("重启后台…") { confirmation = .init(action: "restart-service", title: "重启 PhotoPainter 后台？", message: "重新加载配置和设备绑定，保持现有自动推图设置。当前没有在途设备操作时才可执行。", fields: [:]) }.disabled(model.busy || !model.connected || model.snapshot?.transfer.active == true || model.snapshot?.transfer.uncertain == true)
@@ -453,7 +463,7 @@ struct ProvisioningView: View {
     var body: some View {
         DisclosureGroup("首次配置或重新配置设备凭据") {
             VStack(alignment: .leading, spacing: 16) {
-                Text("生成步骤只创建 NVS 文件。写入步骤会改变 Wi-Fi 和设备推图令牌，原后台凭据可能随之失效；后续连接需要与新配置匹配。").font(.system(size: 13)).foregroundStyle(.secondary)
+                Text("生成步骤只创建 NVS 文件。整块写入会替换 Wi-Fi 和已保存的配对；普通宿主升级应使用仅写 factory 的流程。").font(.system(size: 13)).foregroundStyle(.secondary)
                 HStack { Button("选择私有配置文件…") { FileChooser.open("选择 secrets.env 或私有配置", hidden: true) { configPath = $0; credentialsConfirmed = false } }; Text(configPath.isEmpty ? "尚未选择配置" : configPath).font(.system(size: 12)).textSelection(.enabled) }
                 HStack { Button("选择可选 Wi-Fi JSON…") { FileChooser.open("选择 Wi-Fi 配置", types: [.json]) { wifiPath = $0 } }; if !wifiPath.isEmpty { Text(URL(fileURLWithPath: wifiPath).lastPathComponent).font(.system(size: 12)); Button("不使用") { wifiPath = "" } } }
                 Button("生成 NVS 文件…") {
@@ -465,8 +475,8 @@ struct ProvisioningView: View {
                 }.disabled(model.busy || configPath.isEmpty || !model.available("provision-generate"))
                 if let generated, generated["type"]?.text == "nvs", let path = generated["path"]?.text, let digest = generated["digest"]?.text {
                     Text("已生成：\(path)").font(.system(size: 12)).textSelection(.enabled)
-                    Toggle("我已确认新 Wi-Fi／设备令牌，知道旧连接凭据可能失效", isOn: $credentialsConfirmed).toggleStyle(.checkbox).font(.system(size: 12))
-                    Button("备份后写入 NVS…", role: .destructive) { confirmation = .init(action: "usb-provision", title: "重新配置设备凭据？", message: "后台先完整备份设备，再仅写入 NVS 配置分区并校验。此操作会重启设备，可能改变 Wi-Fi 和推图令牌，旧后台可能无法继续鉴权。", fields: ["port": port, "path": path, "digest": digest, "credentials_confirmed": true], destructive: true) }.disabled(model.busy || port.isEmpty || !credentialsConfirmed || model.snapshot?.transfer.active == true || !model.available("usb-provision"))
+                    Toggle("我已确认新 Wi-Fi 配置，并知道整块 NVS 写入会清除配对", isOn: $credentialsConfirmed).toggleStyle(.checkbox).font(.system(size: 12))
+                    Button("备份后写入 NVS…", role: .destructive) { confirmation = .init(action: "usb-provision", title: "替换设备 NVS 配置？", message: "后台先完整备份设备，再写入 NVS 配置分区并校验。此操作会重启设备、替换 Wi-Fi 并清除配对关系，之后需要重新按键配对。", fields: ["port": port, "path": path, "digest": digest, "credentials_confirmed": true], destructive: true) }.disabled(model.busy || port.isEmpty || !credentialsConfirmed || model.snapshot?.transfer.active == true || !model.available("usb-provision"))
                 }
                 CapabilityReason(model: model, action: "provision-generate")
                 ActionResultView(model: model, actions: ["provision-generate", "usb-provision"], title: "配置生成与写入结果")
