@@ -1,57 +1,67 @@
 # PhotoPainter Console
 
-独立的 macOS SwiftUI 设备控制台，版本 **0.4.1**。原源码位于 `ai-quota-frame/apps/console`，现拆分到本仓库；Go 后台、采集和 BLE 通信仍由 [ai-quota-frame](https://github.com/M1nt-Ch0c0/ai-quota-frame) 提供。
+PhotoPainter Console 是一个 macOS 原生应用，用图形界面操作 PhotoPainter 相框：查看设备状态、管理相框上的应用、手动推图、配对、Wi-Fi 配置和 USB 维护。它是 [ai-quota-frame](https://github.com/M1nt-Ch0c0/ai-quota-frame) 后台的前端，本身不连接蓝牙。
 
-控制台直接通过受文件权限保护的 Unix socket 连接后台，所有蓝牙与维护操作进入后台唯一队列。界面不创建第二个 BLE 客户端，也不读取私有环境配置或普通服务日志。
+每个页面能做什么、后台怎样排队执行操作，见 [电脑端、控制台与网页插件](https://github.com/M1nt-Ch0c0/esp32s3/blob/main/docs/07-clients.md#macos-控制台)。这一页只讲本仓库：它和后台的关系、怎样构建。
 
-**配对 v2 尚未实机验证。** 0.4.1 已对齐新版后台的配对命令与六位码进度，今晚仅离线构建，未安装/启动此候选应用。浏览器插件与原生后台是不同 owner；选择一种控制端完成物理配对，更换时通过功能键重置。
+## 和 ai-quota-frame 后台的关系
 
-## 操作界面
+```mermaid
+flowchart LR
+    C[PhotoPainter Console] -->|Unix socket，一行 JSON| B[ai-quota-frame daemon]
+    C -->|launchctl| L[后台的 LaunchAgent]
+    B -->|蓝牙 / USB 串口| F[相框]
+```
 
-| 页面 | 可视化能力 | 后台操作 |
-|---|---|---|
-| 运行总览 | 自动采集/推图开关、当前通道、发送进度、耗时与速率、最终完成回执、已确认画面 | snapshot / refresh / pause / resume |
-| 设备与应用 | 当前 ABI/版本/阶段/复位码、内存、完整设备字段、A/B 目录、包检查、安装、激活、切换、回退、删除、结束试运行、同版本备用槽重建、ELF 打包 | status / inspect / install / activate / switch / rollback / remove / use-slot / cancel-trial / package |
-| 连接与发现 | 广播扫描、六位码配对进度、鉴权信息、移除本机关系，以及固定后台服务启停 | scan / pair-status / pair / info / forget / LaunchAgent |
-| 图片推送 | 严格 PNG 预检、文件摘要确认、手动实体显示、实际 GATT/CoC 通道及结果 | inspect-image / push |
-| 应用通信 | 0–3 号应用特征读写、UTF-8/Hex/Base64 输入、字节数限制、文本及十六进制返回值 | app-read / app-write |
-| Wi-Fi 配置 | 设备列表、添加、删除、优先级移动、完整列表替换、私有备份、文件更新，以及本地/SD JSON 编辑 | wifi-list / wifi-add / wifi-remove / wifi-move / wifi-set / wifi-backup / wifi-update / wifi-file-status / wifi-file-upsert / wifi-file-remove / wifi-file-move |
-| USB 维护 | 端口与设备身份、完整 Flash 备份、宿主 factory 更新、完整备份恢复、文件检查、串口启动诊断、NVS 生成与首次配置 | usb-ports / usb-inspect / usb-backup / usb-flash / usb-restore / serial-diagnose / provision-generate / usb-provision |
-| 诊断 | 本机环境检查、真机诊断、能力清单及不可用原因、安全原始状态和操作结果、诊断导出 | doctor / diagnose |
+- 控制台的每个操作都是一条发给后台的请求。后台把它放进唯一的设备操作队列，和自动推图一起按顺序执行。控制台每 2 秒请求一次 `snapshot`，读取后台状态和最近一次操作的结果。
+- socket 路径是 `~/Library/Application Support/ai-quota-frame/console/bridge.sock`。后台只在 macOS 上、并且用蓝牙推送时才打开它，见 [`console` 子命令](https://github.com/M1nt-Ch0c0/esp32s3/blob/main/docs/07-clients.md#console-子命令)。
+- 控制台要求后台装在 `~/Library/Application Support/ai-quota-frame/`，LaunchAgent 标识为 `com.m1ntch0c0.ai-quota-frame`。“启动后台”“重启后台”“停止后台”按钮通过 `launchctl` 操作这个 LaunchAgent。
+- 哪些操作可用由后台的能力清单决定，界面按清单启用或禁用按钮，并显示不可用的原因。所以控制台要和配套版本的后台一起使用。
 
-“工作原理”、架构教程和开发示例页面已移除。SDK 与开发说明统一维护在 [项目 Wiki 原件](https://github.com/M1nt-Ch0c0/esp32s3/tree/main/wiki)。
-
-能力清单由后台返回；设备 HTTP Wi-Fi 操作只用于旧固件，v2 host 返回 410。本地/SD JSON 编辑仍可用。旧 HTTP 操作需要私网可达，手填地址须匹配鉴权发现的 IP。USB 操作需要工具链和已绑定设备。界面不以扫描结果或屏幕残留画面推断设备在线，不用固定值冒充电池、电压等尚未采集的信息。NVS 生成不写设备；实际凭据配置需要确认新凭据影响，再确认备份后写入。开发测试/构建脚本不作为任意 shell 命令执行入口。
+本仓库只包含控制台。后台程序、它的配置和设备凭据都由 ai-quota-frame 管理，安装方法见 [上手使用](https://github.com/M1nt-Ch0c0/esp32s3/blob/main/docs/02-getting-started.md)。
 
 ## 构建
 
-要求 Apple Silicon Mac、macOS 14 或更新版本，以及 Xcode Command Line Tools：
+需要 Apple Silicon Mac、macOS 14 或更新版本，以及 Xcode Command Line Tools。
 
 ```sh
 sh build.sh
 open "dist/PhotoPainter Console.app"
 ```
 
-产物仅为控制台 `dist/PhotoPainter Console.app`，不在本仓库构建或打包 Go 后台。保持应用标识 `com.m1ntch0c0.photopainter-console`，与原控制台兼容。版本为 0.4.1 / build 6。
+`build.sh` 用 `swiftc` 编译 `Sources/` 下的四个文件，生成 `Info.plist`，再做本机临时签名（ad-hoc）。产物是 `dist/PhotoPainter Console.app`，`dist/` 不进版本库。
 
-后台应安装在 `~/Library/Application Support/ai-quota-frame/ai-quota-frame`，LaunchAgent 标识为 `com.m1ntch0c0.ai-quota-frame`，socket 为运行目录下的 `console/bridge.sock`。请使用支持本次能力接口的配套后台。现有配置、设备凭据和后台启动器不迁入本仓库。
+| 项目 | 值 |
+|---|---|
+| 应用标识 | `com.m1ntch0c0.photopainter-console` |
+| 版本 | 0.4.1（build 6），在 `build.sh` 里修改 |
+| 最低系统 | macOS 14，arm64 |
 
-## 接口约定
+## 源码
 
-请求为一行 JSON，`action` 指定操作。设备工作通常先返回排队状态，之后通过 snapshot 读取结果：
+| 文件 | 内容 |
+|---|---|
+| `Sources/ConsoleSocket.swift` | Unix socket 客户端：发送一行 JSON，读取一行回复，4 秒超时 |
+| `Sources/Models.swift` | 后台状态的数据结构、请求发送与轮询、LaunchAgent 控制 |
+| `Sources/ConsoleApp.swift` | 应用入口、侧边栏和各页面框架、运行总览与设备页 |
+| `Sources/OperationsView.swift` | 连接、图片推送、应用通信、Wi-Fi、USB 维护等操作页和确认对话框 |
 
-- `operation_result_action` / `operation_result`：最近操作结果，界面按操作缓存本次会话中已有结果。
-- `device_raw`：鉴权读取的完整安全设备状态。
-- `capabilities`：`id/title/category/available/reason`，用于表达真实能力与限制。
-- `inspect` 返回 `package`；`inspect-image` 返回 `image`。推图和安装确认携带文件摘要，后台执行前再次核对。
-- 写入、删除、恢复等操作携带 `confirmed:true`，GUI 会先显示具体影响。未知完成结果不会自动重放命令。
+## 请求格式
 
-Wi-Fi 密码使用 SecureField，直接传入 Unix socket，不通过 shell 或进程参数传递，不加入诊断摘要。Flash 备份只由后台读取和保存，GUI 展示元数据及目录，不打开备份内容。
+每个请求是一行 JSON，`action` 字段指定操作，其余字段是操作参数。会修改设备的操作（安装、删除、写 Wi-Fi、USB 写入等）在界面上先弹出确认对话框，确认后才带上 `confirmed: true` 发出。
 
-首次配置使用已有私有配置文件路径，由后台生成受保护的 NVS 镜像；界面不读取该文件内容。整块 NVS 写入会替换 Wi-Fi 并清除保存的配对，需重新物理配对；普通 host 更新应仅写 factory。界面要求独立确认。
+后台的回复包含：
 
-## 当前交付边界
+| 字段 | 内容 |
+|---|---|
+| `state` | 后台状态快照，包括自动推送、最近采集、推图进度、设备状态、能力清单 |
+| `state.operation_result_action`、`state.operation_result` | 最近一次完成的操作和它的结果 |
+| `package` | `inspect` 检查应用包得到的信息：应用 ID、版本、ABI、字节数、摘要 |
+| `image` | `inspect-image` 检查 PNG 得到的信息：字节数、摘要、宽、高 |
+| `error` | 错误信息 |
 
-本轮执行离线 SwiftUI 构建与代码检查，没有启动控制台或触发后台设备操作。配对、USB、Wi-Fi 与实体显示均须早上由用户在场验收；编译成功不等于这些入口已经在实机执行。步骤与回滚见 [早上验收清单](https://github.com/M1nt-Ch0c0/esp32s3/blob/main/docs/MORNING-ACCEPTANCE.md)。
+安装应用包和推图时，控制台先让后台检查文件并返回摘要，执行请求里带上这个摘要，后台执行前再核对一次。
 
-离线候选记录：[配对界面适配，尚未实机验证](docs/validation-pairing-ui-2026-10-29.md)。
+## 隐私
+
+控制台不读取后台的环境配置、设备凭据、服务日志和 Flash 备份内容。Wi-Fi 密码在密码输入框里输入，只通过 socket 交给后台，不经过 shell 或命令行参数。

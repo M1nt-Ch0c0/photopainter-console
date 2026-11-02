@@ -4,32 +4,27 @@
 
 ## Platform
 
-Native macOS desktop, Apple Silicon, SwiftUI. macOS 14 minimum.
+Native macOS desktop app, Apple Silicon, SwiftUI, macOS 14 minimum.
 
 ## Stack
 
-Standalone SwiftUI repository. A direct, filesystem-protected Unix socket connects to the existing Go service in ai-quota-frame. The service owns a single serialized queue for BLE and maintenance operations.
+Standalone SwiftUI repository. The app talks to the ai-quota-frame Go service over a filesystem-protected Unix socket. The service owns a single serialized queue for BLE and USB maintenance operations; the console never opens its own radio or serial connection.
 
 ## Purpose
 
-Operate the PhotoPainter and inspect all currently exposed device state without relying on shell commands or interpreting ordinary service logs.
+Operate a PhotoPainter frame and inspect its full device state without shell commands or reading service logs.
 
-## Current surfaces
+## Surfaces
 
-Overview; device and applications; connection and discovery; local image push; application characteristic communication; Wi-Fi configuration; USB maintenance; diagnostics.
+Overview; device and applications; connection and discovery; image push; application characteristic communication; Wi-Fi configuration; USB maintenance; diagnostics.
 
-Architecture education, work-principles pages and code tutorials were explicitly removed at the user's request. Developer documentation belongs in the project Wiki.
+The console has no tutorial, architecture or "how it works" pages. Explanations and developer documentation belong in the esp32s3 docs site.
 
 ## Product rules
 
-- Preserve the established light blue canvas, restrained blue controls, SF typography and native macOS affordances.
-- Render actual backend capabilities, operation results and authenticated device observations.
-- Distinguish capability support, actual transport, local send progress, physical completion and observation age.
-- Keep destructive actions explicit and confirmed. Never repeat a mutation merely because its response was lost.
-- Never expose private environment configuration, credentials, ordinary source logs, or Flash/NVS backup contents.
-- Keep Wi-Fi passwords out of process arguments; communicate through the Unix socket.
-- Support operations through the backend queue; do not open a competing radio connection from the GUI.
-
-## Evidence
-
-The paired host implements ABI 2.2 single-owner CoC, and photoframe v20 has completed a physical refresh over CoC. Operation coverage is enumerated in README. The standalone 0.4.0 build is compiled locally; deployment evidence is maintained by the main project.
+- Keep the established visual language: light blue canvas, restrained blue controls, SF typography, native macOS controls.
+- Show only real data: backend capabilities, operation results and authenticated device observations.
+- Keep these states visibly distinct: capability supported, transport actually used, local send progress, physical display completion, and the age of each observation.
+- Destructive actions require explicit confirmation. Never repeat a mutation because its response was lost; read status instead.
+- Never expose private environment configuration, credentials, service logs, or Flash/NVS backup contents.
+- Keep Wi-Fi passwords out of process arguments; send them only over the Unix socket.
